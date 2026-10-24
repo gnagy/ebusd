@@ -269,11 +269,15 @@ class ProtocolHandler : public WaitThread, public DeviceListener {
       m_arbitrationDelayMax(-1), m_lastReceive(0),
       m_symPerSec(0), m_maxSymPerSec(0),
       m_logRawFile(nullptr), m_logRawEnabled(false), m_logRawBytes(false),
-      m_logRawLastSymbol(SYN), m_dumpFile(nullptr) {
+      m_logRawLastSymbol(SYN), m_dumpFile(nullptr),
+      m_logTelegramFile(nullptr), m_telegramLastReceived(true), m_telegramLastSymbol(SYN),
+      m_telegramResult(RESULT_OK), m_telegramState(nullptr), m_telegramRetries(0), m_telegramArbitration(0) {
     memset(m_seenAddresses, 0, sizeof(m_seenAddresses));
     device->setListener(this);
     m_logRawLastReceived = true;
     m_logRawLastSymbol = SYN;
+    m_telegramStart.tv_sec = m_telegramEnd.tv_sec = 0;
+    m_telegramStart.tv_nsec = m_telegramEnd.tv_nsec = 0;
   }
 
   /**
@@ -297,6 +301,10 @@ class ProtocolHandler : public WaitThread, public DeviceListener {
     if (m_logRawFile) {
       delete m_logRawFile;
       m_logRawFile = nullptr;
+    }
+    if (m_logTelegramFile) {
+      delete m_logTelegramFile;
+      m_logTelegramFile = nullptr;
     }
     if (m_device != nullptr) {
       delete m_device;
@@ -522,7 +530,45 @@ class ProtocolHandler : public WaitThread, public DeviceListener {
    */
   bool toggleLogRaw(bool bytes);
 
+  /**
+   * Set the telegram log file to use.
+   * Each telegram is written as one line of the raw log message format (all bytes between two SYN, with
+   * direction markers), followed by space separated key=value fields for what is not the default:
+   * g=<idle gap before the telegram in microseconds>, r=<result code when not OK>, s=<state the result
+   * occurred in>, n=<number of NAK repetitions>, a=<won|lost arbitration>, m=<circuit.name of the matching
+   * message>.
+   * @param logTelegramFile the telegram log file to use (optionally with strftime() conversions), or empty.
+   * @param logTelegramSize the maximum file size in kB, or 0 for no limit.
+   */
+  void setLogTelegramFile(const char* logTelegramFile, unsigned int logTelegramSize);
+
+  /**
+   * Set the matching message of the telegram currently received or sent.
+   * @param match the circuit and name of the matching message.
+   */
+  void setTelegramMatch(const string& match) { m_telegramMatch = match; }
+
  protected:
+  /**
+   * Note a result of the telegram currently received or sent for the telegram log.
+   * @param result the result code.
+   * @param state the name of the state the result occurred in.
+   * @param final whether the result ends the telegram (@a false for a failure that is followed by a
+   * repetition).
+   */
+  void noteTelegramResult(result_t result, const char* state, bool final);
+
+  /**
+   * Note the arbitration outcome of the telegram currently received or sent for the telegram log.
+   * @param won whether the arbitration was won.
+   */
+  void noteTelegramArbitration(bool won) { m_telegramArbitration = won ? 1 : -1; }
+
+  /**
+   * Write the telegram received or sent since the last SYN to the telegram log and start a new one.
+   */
+  void writeTelegram();
+
   /**
    * Called to measure the latency between send and receive of a symbol.
    * @param sentTime the time the symbol was sent.
@@ -620,6 +666,39 @@ class ProtocolHandler : public WaitThread, public DeviceListener {
 
   /** the @a RotateFile for dumping received data, or nullptr. */
   RotateFile* m_dumpFile;
+
+  /** the @a RotateFile for writing one line per telegram, or nullptr. */
+  RotateFile* m_logTelegramFile;
+
+  /** the bytes of the telegram currently received or sent, in raw log message format. */
+  ostringstream m_telegramBuffer;
+
+  /** true when the last byte in @a m_telegramBuffer was received, false if it was sent. */
+  bool m_telegramLastReceived;
+
+  /** the last sent/received symbol for @a m_telegramBuffer. */
+  symbol_t m_telegramLastSymbol;
+
+  /** the time the first byte of the current telegram was seen. */
+  struct timespec m_telegramStart;
+
+  /** the time the previous telegram was written. */
+  struct timespec m_telegramEnd;
+
+  /** the final result of the current telegram. */
+  result_t m_telegramResult;
+
+  /** the name of the state @a m_telegramResult occurred in, or nullptr. */
+  const char* m_telegramState;
+
+  /** the number of NAK repetitions in the current telegram. */
+  unsigned int m_telegramRetries;
+
+  /** the arbitration outcome of the current telegram: 1 for won, -1 for lost, 0 for none. */
+  int m_telegramArbitration;
+
+  /** the circuit and name of the message matching the current telegram, or empty. */
+  string m_telegramMatch;
 };
 
 }  // namespace ebusd

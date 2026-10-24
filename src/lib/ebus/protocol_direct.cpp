@@ -53,6 +53,33 @@ const char* getStateCode(BusState state) {
 }
 
 /**
+ * Return the short name of the @a BusState for the telegram log.
+ * @param state the @a BusState.
+ * @return the short name of the @a BusState.
+ */
+static const char* getStateName(BusState state) {
+  switch (state) {
+  case bs_noSignal:   return "noSignal";
+  case bs_skip:       return "skip";
+  case bs_ready:      return "ready";
+  case bs_sendCmd:    return "sendCmd";
+  case bs_recvCmdCrc: return "recvCmdCrc";
+  case bs_recvCmdAck: return "recvCmdAck";
+  case bs_recvRes:    return "recvRes";
+  case bs_recvResCrc: return "recvResCrc";
+  case bs_sendResAck: return "sendResAck";
+  case bs_recvCmd:    return "recvCmd";
+  case bs_recvResAck: return "recvResAck";
+  case bs_sendCmdCrc: return "sendCmdCrc";
+  case bs_sendCmdAck: return "sendCmdAck";
+  case bs_sendRes:    return "sendRes";
+  case bs_sendResCrc: return "sendResCrc";
+  case bs_sendSyn:    return "sendSyn";
+  default:            return "unknown";
+  }
+}
+
+/**
  * The @a ProtocolState value by internal @a BusState value index.
  */
 static const ProtocolState protocolStateByBusState[] = {
@@ -354,6 +381,7 @@ struct timespec* sentTime) {
           setState(bs_ready, RESULT_ERR_TIMEOUT);
         } else {
           logDebug(lf_bus, "arbitration won");
+          noteTelegramArbitration(true);
           m_currentRequest = startRequest;
           sentSymbol = m_currentRequest->getMaster()[0];
           sending = true;
@@ -406,6 +434,9 @@ struct timespec* sentTime) {
       }
     }
     clockGettime(&m_lastSynReceiveTime);
+    if (m_state != bs_ready && m_state != bs_skip && m_state != bs_noSignal) {
+      noteTelegramResult(RESULT_ERR_SYN, getStateName(m_state), true);  // SYN in the middle of a telegram
+    }
     return setState(bs_ready, m_state == bs_skip || m_remainLockCount > 0 ? result : RESULT_ERR_SYN);
   }
 
@@ -476,6 +507,7 @@ struct timespec* sentTime) {
         }
         m_nextSendPos = 1;
         m_repeat = false;
+        noteTelegramArbitration(true);
         return setState(bs_sendCmd, result);
       }
       // arbitration lost. if same priority class found, try again after next AUTO-SYN
@@ -685,6 +717,19 @@ struct timespec* sentTime) {
 }
 
 result_t DirectProtocolHandler::setState(BusState state, result_t result, bool firstRepetition) {
+  if (result == RESULT_ERR_BUS_LOST) {
+    noteTelegramArbitration(false);
+  } else if (result < RESULT_OK && m_state != bs_ready) {  // a failure while ready is an idle SYN or timeout
+    // a failure moving on to another receive/send state is repeated (NAK) or answered by a NAK, only one
+    // moving to skip/SYN/ready ends the telegram
+    bool final = state == bs_skip || state == bs_sendSyn || state == bs_ready || state == bs_noSignal;
+    if (final || result == RESULT_ERR_NAK) {
+      noteTelegramResult(result, getStateName(m_state), final);
+    }
+  }
+  if ((state == bs_ready || state == bs_noSignal) && state != m_state) {
+    writeTelegram();  // a SYN (or the loss of signal) ends the telegram
+  }
   if (m_currentRequest != nullptr) {
     if (result == RESULT_ERR_BUS_LOST && m_currentRequest->getBusLostRetries() < m_config.busLostRetries) {
       logDebug(lf_bus, "%s during %s, retry", getResultCode(result), getStateCode(m_state));

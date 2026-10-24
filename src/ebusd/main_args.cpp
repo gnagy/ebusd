@@ -84,6 +84,9 @@ static const options_t s_default_opt = {
   .logRawFile = PACKAGE_LOGFILE,
   .logRawSize = 100,
 
+  .logTelegramFile = "",
+  .logTelegramSize = 0,
+
   .dump = false,
   .dumpFile = "/tmp/" PACKAGE "_dump.bin",
   .dumpSize = 100,
@@ -128,6 +131,8 @@ static string s_configPath = CONFIG_PATH;
 #define O_DMPFIL (O_RAWSIZ-1)
 #define O_DMPSIZ (O_DMPFIL-1)
 #define O_DMPFLU (O_DMPSIZ-1)
+#define O_TELFIL (O_DMPFLU-1)
+#define O_TELSIZ (O_TELFIL-1)
 #define O_INJPOS 0x100
 
 #define ARG_NO_ENV (af_max << 1)
@@ -224,6 +229,11 @@ static const argDef argDefs[] = {
       "--lograwdatafile [/tmp/" PACKAGE "_dump.bin]"},
   {"dumpsize",       O_DMPSIZ, "SIZE",     0, "Make dump file no larger than SIZE kB, 0 for no limit [100]"},
   {"dumpflush",      O_DMPFLU, nullptr,    0, "Flush each byte"},
+
+  {nullptr,          0,        nullptr,    0, "Telegram logging options:"},
+  {"logtelegramfile", O_TELFIL, "FILE",    0, "Write each telegram as one raw log line with its result to FILE, "
+      "appending. strftime() conversions as for --lograwdatafile [off]"},
+  {"logtelegramsize", O_TELSIZ, "SIZE",    0, "Make telegram log file no larger than SIZE kB, 0 for no limit [0]"},
 
   {nullptr,          0,        nullptr,    0, nullptr},
 };
@@ -594,6 +604,23 @@ static int parse_opt(int key, char *arg, const argParseOpt *parseOpt, struct opt
     break;
   case O_DMPFLU:  // --dumpflush
     opt->dumpFlush = true;
+    break;
+
+  // Telegram logging options:
+  case O_TELFIL:  // --logtelegramfile=/var/log/ebusd-telegrams-%Y%m%d.log
+    if (arg == nullptr || arg[0] == 0 || strcmp("/", arg) == 0) {
+      argParseError(parseOpt, "invalid logtelegramfile");
+      return EINVAL;
+    }
+    opt->logTelegramFile = arg;
+    break;
+  case O_TELSIZ:  // --logtelegramsize=0
+    value = parseInt(arg, 10, 0, 1000000, &result);
+    if (result != RESULT_OK) {
+      argParseError(parseOpt, "invalid logtelegramsize");
+      return EINVAL;
+    }
+    opt->logTelegramSize = value;
     break;
 
   default:

@@ -525,6 +525,9 @@ int main(int argc, char* argv[], char* envp[]) {
   if (s_opt.logRaw != 0) {
     s_protocol->toggleLogRaw(s_opt.logRaw == 2);
   }
+  if (s_opt.logTelegramFile[0]) {
+    s_protocol->setLogTelegramFile(s_opt.logTelegramFile, s_opt.logTelegramSize);
+  }
 
   // open Device
   s_protocol->open();

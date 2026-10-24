@@ -25,6 +25,7 @@
 #include "lib/ebus/device_trans.h"
 #include "lib/ebus/protocol.h"
 #include "lib/ebus/protocol_direct.h"
+#include "lib/utils/clock.h"
 #include "lib/utils/log.h"
 
 namespace ebusd {
@@ -138,6 +139,26 @@ void ProtocolHandler::formatInfoJson(ostringstream* ostream) const {
 void ProtocolHandler::notifyDeviceData(const symbol_t* data, size_t len, bool received) {
   if (received && m_dumpFile) {
     m_dumpFile->write(data, len);
+  }
+  if (m_logTelegramFile) {
+    // collect all bytes up to the next SYN like the raw log in message mode, written by writeTelegram()
+    for (size_t pos = 0; pos < len; pos++) {
+      symbol_t symbol = data[pos];
+      if (symbol != SYN) {
+        if (received && !m_telegramLastReceived && symbol == m_telegramLastSymbol) {
+          continue;  // skip received echo of previously sent symbol
+        }
+        if (m_telegramBuffer.tellp() == 0) {
+          clockGettime(&m_telegramStart);
+        }
+        if (m_telegramBuffer.tellp() == 0 || received != m_telegramLastReceived) {
+          m_telegramLastReceived = received;
+          m_telegramBuffer << (received ? "<" : ">");
+        }
+        m_telegramBuffer << setw(2) << setfill('0') << hex << static_cast<unsigned>(symbol);
+      }
+      m_telegramLastSymbol = symbol;
+    }
   }
   if (!m_logRawFile && !m_logRawEnabled) {
     return;
@@ -322,6 +343,89 @@ void ProtocolHandler::setLogRawFile(const char* logRawFile, unsigned int logRawS
   } else {
     m_logRawFile = nullptr;
   }
+}
+
+void ProtocolHandler::setLogTelegramFile(const char* logTelegramFile, unsigned int logTelegramSize) {
+  if (m_logTelegramFile) {
+    delete m_logTelegramFile;
+    m_logTelegramFile = nullptr;
+  }
+  if (logTelegramFile && logTelegramFile[0]) {
+    m_logTelegramFile = new RotateFile(logTelegramFile, logTelegramSize, true);
+    m_logTelegramFile->setEnabled(true);
+  }
+}
+
+/**
+ * Return the short code of a result for the telegram log.
+ * @param result the result code.
+ * @return the short code.
+ */
+static string getTelegramResultCode(result_t result) {
+  switch (result) {
+    case RESULT_ERR_CRC:          return "crc";
+    case RESULT_ERR_NAK:          return "nak";
+    case RESULT_ERR_ACK:          return "ack";
+    case RESULT_ERR_SYN:          return "syn";
+    case RESULT_ERR_TIMEOUT:      return "timeout";
+    case RESULT_ERR_ESC:          return "esc";
+    case RESULT_ERR_INVALID_ADDR: return "addr";
+    case RESULT_ERR_SYMBOL:       return "symbol";
+    case RESULT_ERR_BUS_LOST:     return "lost";
+    case RESULT_ERR_DEVICE:       return "device";
+    case RESULT_ERR_NO_SIGNAL:    return "signal";
+    default:                      return std::to_string(static_cast<int>(result));
+  }
+}
+
+void ProtocolHandler::noteTelegramResult(result_t result, const char* state, bool final) {
+  if (!m_logTelegramFile || m_telegramBuffer.tellp() == 0) {
+    return;
+  }
+  if (!final) {
+    m_telegramRetries++;
+  } else if (m_telegramResult == RESULT_OK) {  // the first failure is the one that ended the telegram
+    m_telegramResult = result;
+    m_telegramState = state;
+  }
+}
+
+void ProtocolHandler::writeTelegram() {
+  if (m_logTelegramFile && m_telegramBuffer.tellp() > 0) {
+    ostringstream line;
+    line << m_telegramBuffer.str();
+    if (m_telegramEnd.tv_sec != 0) {
+      int64_t gap = ((m_telegramStart.tv_sec - m_telegramEnd.tv_sec) * 1000000000LL
+          + m_telegramStart.tv_nsec - m_telegramEnd.tv_nsec) / 1000;
+      if (gap >= 0) {
+        line << " g=" << std::dec << gap;
+      }
+    }
+    if (m_telegramResult != RESULT_OK) {
+      line << " r=" << getTelegramResultCode(m_telegramResult);
+      if (m_telegramState) {
+        line << " s=" << m_telegramState;
+      }
+    }
+    if (m_telegramRetries > 0) {
+      line << " n=" << std::dec << m_telegramRetries;
+    }
+    if (m_telegramArbitration != 0) {
+      line << " a=" << (m_telegramArbitration > 0 ? "won" : "lost");
+    }
+    if (!m_telegramMatch.empty()) {
+      line << " m=" << m_telegramMatch;
+    }
+    const string str = line.str();
+    m_logTelegramFile->write((const unsigned char*)str.c_str(), str.size(), true, false);
+    clockGettime(&m_telegramEnd);
+  }
+  m_telegramBuffer.str("");
+  m_telegramResult = RESULT_OK;
+  m_telegramState = nullptr;
+  m_telegramRetries = 0;
+  m_telegramArbitration = 0;
+  m_telegramMatch.clear();
 }
 
 bool ProtocolHandler::toggleLogRaw(bool bytes) {

@@ -432,6 +432,9 @@ void BusHandler::notifyProtocolMessage(MessageDirection direction, const MasterS
     }
   }
   Message* message = m_messages->find(command);
+  if (message) {
+    m_protocol->setTelegramMatch(message->getCircuit() + "." + message->getName());
+  }
   if (m_grabMessages) {
     uint64_t key;
     if (message) {

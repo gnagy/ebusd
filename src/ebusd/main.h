@@ -100,6 +100,9 @@ typedef struct options {
   const char* logRawFile;  //!< name of raw log file [/var/log/ebusd.log]
   unsigned int logRawSize;  //!< maximum size of raw log file in kB [100]
 
+  const char* logTelegramFile;  //!< name of telegram log file, or empty for none [""]
+  unsigned int logTelegramSize;  //!< maximum size of telegram log file in kB, or 0 for no limit [0]
+
   bool dump;  //!< binary dump received bytes
   const char* dumpFile;  //!< name of dump file [/tmp/ebusd_dump.bin]
   unsigned int dumpSize;  //!< maximum size of dump file in kB [100]
