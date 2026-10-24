@@ -1,0 +1,40 @@
+# Builds and tests ebusd from this checkout on debian:trixie, the base of the Home Assistant add-on's
+# base-debian:trixie, and packs the result into a small runtime image for replay tests.
+# Run through build.sh, which builds on proton and copies the binaries out for the add-on.
+
+FROM debian:trixie AS build
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      autoconf automake g++ make \
+      libmosquitto-dev libssl-dev ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+COPY . /build
+
+RUN ./autogen.sh && make -j"$(nproc)" && make DESTDIR=/out install-strip
+
+# the tests make_debian.sh runs with RUNTEST=full, plus the RotateFile test
+RUN set -e; \
+    for t in filereader data message symbol; do (cd src/lib/ebus/test && make test_$t && ./test_$t > /tmp/test_$t.txt) \
+      || { cat /tmp/test_$t.txt; echo "test $t failed"; exit 1; }; done; \
+    (cd src/lib/utils/test && make test_rotatefile && ./test_rotatefile) \
+      || { echo "test rotatefile failed"; exit 1; }; \
+    /out/usr/bin/ebusd -f -s --configlang=tt -d /dev/null --log=all:debug --inject=stop 10fe0900040000803e/ \
+      > /tmp/float.txt; \
+    grep -E "received update-read broadcast test QQ=10: 0\.25$" /tmp/float.txt || { echo "float test failed"; exit 1; }
+
+
+FROM debian:trixie-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      libmosquitto1 libssl3t64 ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=build /out/usr/bin/ebusd /out/usr/bin/ebusctl /usr/bin/
+COPY --from=build /out/etc/ebusd/ /etc/ebusd/
+
+RUN ebusd -V
+
+EXPOSE 8888
+ENTRYPOINT ["ebusd", "--foreground"]
