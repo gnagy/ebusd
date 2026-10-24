@@ -5,7 +5,8 @@ AM_CXXFLAGS = -I$(top_srcdir)/src \
 noinst_PROGRAMS = test_filereader \
 		  test_symbol \
 		  test_data \
-		  test_message
+		  test_message \
+		  test_protocol
 
 test_filereader_SOURCES = test_filereader.cpp
 test_filereader_LDADD = ../libebus.a -lpthread
@@ -18,6 +19,9 @@ test_data_LDADD = -lpthread ../libebus.a
 
 test_message_SOURCES = test_message.cpp
 test_message_LDADD = ../libebus.a -lpthread
+
+test_protocol_SOURCES = test_protocol.cpp
+test_protocol_LDADD = ../libebus.a ../../utils/libutils.a -lpthread
 
 if CONTRIB
 test_data_LDADD += ../contrib/libebuscontrib.a
