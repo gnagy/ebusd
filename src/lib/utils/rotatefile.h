@@ -21,6 +21,7 @@
 
 #include <unistd.h>
 #include <stdint.h>
+#include <time.h>
 #include <iostream>
 #include <fstream>
 #include <string>
@@ -35,20 +36,23 @@ using std::string;
 
 /**
  * Helper class for writing to a rotating file with maximum size.
+ * An existing file is appended to. A file name containing strftime() conversions (e.g. "raw-%Y%m%d.log") is
+ * expanded with the local time, and writing moves on to a new file whenever the expansion changes.
  */
 class RotateFile {
  public:
   /**
    * Construct a new instance.
-   * @param fileName the name of the file write to.
-   * @param maxSize the maximum size of the file to write to.
+   * @param fileName the name of the file write to, optionally with strftime() conversions.
+   * @param maxSize the maximum size of the file to write to in kB, or 0 for infinite.
    * @param textMode whether to write each byte with prefixed timestamp and direction as text.
    * @param flushBuffer the size of the flush buffer.
    */
   RotateFile(const string fileName, const unsigned int maxSize, const bool textMode = false,
              const unsigned int flushBuffer = 16)
-    : m_enabled(false), m_fileName(fileName), m_maxSize(maxSize), m_textMode(textMode), m_stream(), m_fileSize(0),
-      m_flushSize(0), m_flushBuffer(flushBuffer) {}
+    : m_enabled(false), m_fileName(fileName), m_dated(fileName.find('%') != string::npos), m_maxSize(maxSize),
+      m_textMode(textMode), m_stream(), m_checkedTime(0), m_fileSize(0), m_flushSize(0),
+      m_flushBuffer(flushBuffer) {}
 
   /**
    * Destructor.
@@ -78,15 +82,45 @@ class RotateFile {
   void write(const unsigned char* value, const size_t size, const bool received = true,
       const bool bytes = true);
 
+  /**
+   * Return the name of the file currently written to.
+   * @return the name of the file currently written to (with strftime() conversions expanded).
+   */
+  const string& getCurrentName() const { return m_currentName; }
+
+
+ protected:
+  /**
+   * Get the current time.
+   * @param ts the @a timespec to fill.
+   */
+  virtual void getTime(struct timespec* ts) const;
+
 
  private:
+  /**
+   * Open the file for the specified time, appending to it if it already exists.
+   * @param now the current time.
+   */
+  void open(time_t now);
+
+  /**
+   * Expand the strftime() conversions in the file name.
+   * @param now the time to expand with.
+   * @return the expanded file name.
+   */
+  string expandName(time_t now) const;
+
   /** whether writing to the file is enabled. */
   bool m_enabled;
 
-  /** the name of the file write to. */
+  /** the name of the file write to, optionally with strftime() conversions. */
   const string m_fileName;
 
-  /** the maximum size of @a m_file, or 0 for infinite. */
+  /** whether @a m_fileName contains strftime() conversions. */
+  const bool m_dated;
+
+  /** the maximum size of @a m_file in kB, or 0 for infinite. */
   const unsigned int m_maxSize;
 
   /** whether to write each byte with prefixed timestamp and direction as text. */
@@ -95,7 +129,13 @@ class RotateFile {
   /** the @a FILE to writing to. */
   FILE* m_stream;
 
-  /** the number of bytes written to @a m_file. */
+  /** the name of the file currently written to. */
+  string m_currentName;
+
+  /** the second in which @a m_currentName was last checked against the time. */
+  time_t m_checkedTime;
+
+  /** the number of bytes in @a m_file. */
   uint64_t m_fileSize;
 
   /** the number of bytes written to @a m_file since the last flush. */

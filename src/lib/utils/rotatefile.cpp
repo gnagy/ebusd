@@ -19,6 +19,7 @@
 #include "lib/utils/rotatefile.h"
 #include <sys/ioctl.h>
 #include <sys/file.h>
+#include <sys/stat.h>
 #include <fcntl.h>
 #include <errno.h>
 #include <cstdlib>
@@ -48,10 +49,11 @@ bool RotateFile::setEnabled(bool enabled) {
     m_stream = nullptr;
   }
   if (enabled) {
-    m_stream = fopen(m_fileName.c_str(), m_textMode ? "w" : "wb");
-    m_fileSize = 0;
+    struct timespec ts;
+    getTime(&ts);
+    open(ts.tv_sec);
 #ifdef FORWARD_RAW_TTY
-    if (!m_textMode && isatty(fileno(m_stream)) == 1) {
+    if (!m_textMode && m_stream && isatty(fileno(m_stream)) == 1) {
       int fd = fileno(m_stream);
       struct termios newSettings;
       memset(&newSettings, 0, sizeof(newSettings));
@@ -70,14 +72,54 @@ bool RotateFile::setEnabled(bool enabled) {
   return true;
 }
 
+void RotateFile::getTime(struct timespec* ts) const {
+  clockGettime(ts);
+}
+
+string RotateFile::expandName(time_t now) const {
+  struct tm td;
+  localtime_r(&now, &td);
+  char name[1024];
+  size_t len = strftime(name, sizeof(name), m_fileName.c_str(), &td);
+  return len > 0 ? string(name, len) : m_fileName;
+}
+
+void RotateFile::open(time_t now) {
+  m_currentName = m_dated ? expandName(now) : m_fileName;
+  m_checkedTime = now;
+  // append instead of truncating, so that a restart keeps what was already written
+  m_stream = fopen(m_currentName.c_str(), m_textMode ? "a" : "ab");
+  m_fileSize = 0;
+  m_flushSize = 0;
+  struct stat st;
+  if (m_stream && fstat(fileno(m_stream), &st) == 0 && S_ISREG(st.st_mode)) {
+    m_fileSize = (uint64_t)st.st_size;
+  }
+}
+
 void RotateFile::write(const unsigned char* value, const size_t size, const bool received, const bool bytes) {
-  if (!m_enabled || !m_stream) {
+  if (!m_enabled) {
+    return;
+  }
+  struct timespec ts = {0, 0};
+  if (m_textMode || m_dated) {
+    getTime(&ts);
+  }
+  if (m_dated && ts.tv_sec != m_checkedTime) {
+    m_checkedTime = ts.tv_sec;
+    if (expandName(ts.tv_sec) != m_currentName) {
+      if (m_stream) {
+        fclose(m_stream);
+        m_stream = nullptr;
+      }
+      open(ts.tv_sec);
+    }
+  }
+  if (!m_stream) {
     return;
   }
   if (m_textMode) {
-    struct timespec ts;
     struct tm td;
-    clockGettime(&ts);
     localtime_r(&ts.tv_sec, &td);
     fprintf(m_stream, "%04d-%02d-%02d %02d:%02d:%02d.%03ld ",
       td.tm_year+1900, td.tm_mon+1, td.tm_mday,
@@ -90,7 +132,7 @@ void RotateFile::write(const unsigned char* value, const size_t size, const bool
       m_fileSize += 25+3*size+1;
     } else {
       fwrite(value, 1, size, m_stream);
-      m_fileSize += size+1;
+      m_fileSize += 24+size+1;  // timestamp prefix, message, newline
     }
     fprintf(m_stream, "\n");
     fflush(m_stream);
@@ -103,11 +145,11 @@ void RotateFile::write(const unsigned char* value, const size_t size, const bool
       m_flushSize = 0;
     }
   }
-  if (m_fileSize >= m_maxSize * 1024LL) {
-    string oldfile = string(m_fileName)+".old";
-    if (rename(m_fileName.c_str(), oldfile.c_str()) == 0) {
+  if (m_maxSize > 0 && m_fileSize >= m_maxSize * 1024LL) {
+    string oldfile = m_currentName+".old";
+    if (rename(m_currentName.c_str(), oldfile.c_str()) == 0) {
       fclose(m_stream);
-      m_stream = fopen(m_fileName.c_str(), m_textMode ? "w" : "wb");
+      m_stream = fopen(m_currentName.c_str(), m_textMode ? "w" : "wb");
       m_fileSize = 0;
     }
   }

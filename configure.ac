@@ -137,6 +137,7 @@ AC_CONFIG_HEADERS([config.h])
 AC_CONFIG_FILES([Makefile
 		docs/Makefile
 		src/lib/utils/Makefile
+		src/lib/utils/test/Makefile
 		src/lib/ebus/Makefile
 		src/lib/ebus/test/Makefile
 		src/ebusd/Makefile

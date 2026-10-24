@@ -214,13 +214,15 @@ static const argDef argDefs[] = {
   {nullptr,          0,        nullptr,    0, "Raw logging options:"},
   {"lograwdata",     O_RAW,    "bytes", af_optional,
       "Log messages or all received/sent bytes on the bus"},
-  {"lograwdatafile", O_RAWFIL, "FILE",     0, "Write raw log to FILE [" PACKAGE_LOGFILE "]"},
-  {"lograwdatasize", O_RAWSIZ, "SIZE",     0, "Make raw log file no larger than SIZE kB [100]"},
+  {"lograwdatafile", O_RAWFIL, "FILE",     0, "Write raw log to FILE, appending. strftime() conversions in FILE "
+      "start a new file whenever they change, e.g. raw-%Y%m%d.log [" PACKAGE_LOGFILE "]"},
+  {"lograwdatasize", O_RAWSIZ, "SIZE",     0, "Make raw log file no larger than SIZE kB, 0 for no limit [100]"},
 
   {nullptr,          0,        nullptr,    0, "Binary dump options:"},
   {"dump",           'D',      nullptr,    0, "Enable binary dump of received bytes"},
-  {"dumpfile",       O_DMPFIL, "FILE",     0, "Dump received bytes to FILE [/tmp/" PACKAGE "_dump.bin]"},
-  {"dumpsize",       O_DMPSIZ, "SIZE",     0, "Make dump file no larger than SIZE kB [100]"},
+  {"dumpfile",       O_DMPFIL, "FILE",     0, "Dump received bytes to FILE, appending. strftime() conversions as for "
+      "--lograwdatafile [/tmp/" PACKAGE "_dump.bin]"},
+  {"dumpsize",       O_DMPSIZ, "SIZE",     0, "Make dump file no larger than SIZE kB, 0 for no limit [100]"},
   {"dumpflush",      O_DMPFLU, nullptr,    0, "Flush each byte"},
 
   {nullptr,          0,        nullptr,    0, nullptr},
@@ -563,7 +565,7 @@ static int parse_opt(int key, char *arg, const argParseOpt *parseOpt, struct opt
     opt->logRawFile = arg;
     break;
   case O_RAWSIZ:  // --lograwdatasize=100
-    value = parseInt(arg, 10, 1, 1000000, &result);
+    value = parseInt(arg, 10, 0, 1000000, &result);
     if (result != RESULT_OK) {
       argParseError(parseOpt, "invalid lograwdatasize");
       return EINVAL;
@@ -583,7 +585,7 @@ static int parse_opt(int key, char *arg, const argParseOpt *parseOpt, struct opt
     opt->dumpFile = arg;
     break;
   case O_DMPSIZ:  // --dumpsize=100
-    value = parseInt(arg, 10, 1, 1000000, &result);
+    value = parseInt(arg, 10, 0, 1000000, &result);
     if (result != RESULT_OK) {
       argParseError(parseOpt, "invalid dumpsize");
       return EINVAL;

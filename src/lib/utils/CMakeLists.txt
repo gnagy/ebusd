@@ -13,3 +13,6 @@ set(libutils_a_SOURCES
 )
 
 add_library(utils ${libutils_a_SOURCES})
+if(BUILD_TESTING)
+  add_subdirectory(test)
+endif(BUILD_TESTING)

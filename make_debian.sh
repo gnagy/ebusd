@@ -106,6 +106,7 @@ if [ -n "$RUNTEST" ]; then
     (cd src/lib/ebus/test && make test_data && ./test_data) > test.txt || testdie "data"
     (cd src/lib/ebus/test && make test_message && ./test_message) > test.txt || testdie "message"
     (cd src/lib/ebus/test && make test_symbol && ./test_symbol) > test.txt || testdie "symbol"
+    (cd src/lib/utils/test && make test_rotatefile && ./test_rotatefile) > test.txt || testdie "rotatefile"
   fi
   # note: this can't run on file system base when using qemu for arm 32bit and host is 64bit due to glibc readdir() inode 32 bit values (see https://bugs.launchpad.net/qemu/+bug/1805913), thus using test end point instead:
   ("$RELEASE/usr/bin/ebusd" -f -s --configlang=tt -d /dev/null --log=all:debug --inject=stop 10fe0900040000803e/ > test.txt) || testdie "float conversion"
