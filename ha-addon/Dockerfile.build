@@ -16,7 +16,7 @@ RUN ./autogen.sh && make -j"$(nproc)" && make DESTDIR=/out install-strip
 
 # the tests make_debian.sh runs with RUNTEST=full, plus the RotateFile test
 RUN set -e; \
-    for t in filereader data message symbol; do (cd src/lib/ebus/test && make test_$t && ./test_$t > /tmp/test_$t.txt) \
+    for t in filereader data message symbol protocol; do (cd src/lib/ebus/test && make test_$t && ./test_$t > /tmp/test_$t.txt) \
       || { cat /tmp/test_$t.txt; echo "test $t failed"; exit 1; }; done; \
     (cd src/lib/utils/test && make test_rotatefile && ./test_rotatefile) \
       || { echo "test rotatefile failed"; exit 1; }; \
