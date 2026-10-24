@@ -24,4 +24,5 @@ trap 'docker rm -f "$container" >/dev/null' EXIT
 docker cp "$container:/usr/bin/ebusd" "$out/ebusd"
 docker cp "$container:/usr/bin/ebusctl" "$out/ebusctl"
 echo "$tag" > "$out/VERSION"
+sed -i.bak "s/^version: .*/version: \"26.1-$tag\"/" ha-addon/ebusd_dev/config.yaml && rm ha-addon/ebusd_dev/config.yaml.bak
 echo "built $image; binaries in $out"
